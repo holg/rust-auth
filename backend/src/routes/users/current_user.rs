@@ -1,3 +1,4 @@
+// /backend/src/routes/users/current_user.rs
 #[tracing::instrument(
     name = "Accessing retrieving current user endpoint.",
     skip(pool, session)
@@ -9,9 +10,9 @@ pub async fn get_current_user(
 ) -> actix_web::HttpResponse {
     match crate::routes::users::logout::session_user_id(&session).await {
         Ok(id) => {
-            match crate::utils::get_active_user_from_db(Some(&pool), None, Some(id), None).await {
+            match crate::utils::get_active_user_from_db(&**pool, Some(id), None).await {
                 Ok(user) => {
-                    tracing::event!(target: "backend", tracing::Level::INFO, "User retrieved from the DB.");
+                    tracing::info!("User retrieved from the DB.");
                     actix_web::HttpResponse::Ok().json(crate::types::UserVisible {
                         id: user.id,
                         email: user.email,
@@ -32,17 +33,15 @@ pub async fn get_current_user(
                     })
                 }
                 Err(e) => {
-                    tracing::event!(target: "backend", tracing::Level::ERROR, "User cannot be retrieved from the DB: {:#?}", e);
-                    let error_message = crate::types::ErrorResponse {
+                    tracing::error!("User cannot be retrieved from the DB: {:#?}", e);
+                    actix_web::HttpResponse::NotFound().json(crate::types::ErrorResponse {
                         error: "User was not found".to_string(),
-                    };
-                    actix_web::HttpResponse::NotFound().json(error_message)
+                    })
                 }
             }
         }
-
         Err(e) => {
-            tracing::event!(target: "session",tracing::Level::ERROR, "Failed to get user from session. User unauthorized: {}", e);
+            tracing::error!("Failed to get user from session. User unauthorized: {}", e);
             actix_web::HttpResponse::Unauthorized().json(crate::types::ErrorResponse {
                 error: "You are not logged in. Kindly ensure you are logged in and try again"
                     .to_string(),

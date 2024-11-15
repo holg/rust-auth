@@ -1,3 +1,4 @@
+// backend/src/routes/users/update_user.rs
 use sqlx::Row;
 
 #[derive(actix_multipart::form::MultipartForm)]
@@ -163,12 +164,11 @@ pub async fn update_users_details(
     };
 
     let updated_user = match crate::utils::get_active_user_from_db(
-        None,
-        Some(&mut transaction),
+        &mut *transaction,
         Some(session_uuid),
         None,
     )
-    .await
+        .await
     {
         Ok(user) => {
             tracing::event!(target: "backend", tracing::Level::INFO, "User retrieved from the DB.");

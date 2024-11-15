@@ -1,3 +1,4 @@
+use dotenv;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();

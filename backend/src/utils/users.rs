@@ -1,26 +1,43 @@
+// /backend/src/utils/users.rs
 use sqlx::Row;
 
-#[tracing::instrument(name = "Getting an active user from the DB.", skip(pool))]
-pub async fn get_active_user_from_db(
-    pool: Option<&sqlx::postgres::PgPool>,
-    transaction: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+#[tracing::instrument(name = "Getting an active user from the DB.", skip(executor))]
+pub async fn get_active_user_from_db<'e, E>(
+    executor: E,
     id: Option<uuid::Uuid>,
     email: Option<&String>,
-) -> Result<crate::types::User, sqlx::Error> {
+) -> Result<crate::types::User, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let mut query_builder =
         sqlx::query_builder::QueryBuilder::new(crate::queries::USER_AND_USER_PROFILE_QUERY);
 
-    if let Some(id) = id {
-        query_builder.push(" u.id=");
-        query_builder.push_bind(id);
+    // Add WHERE clause only if we have conditions
+    if id.is_some() || email.is_some() {
+        query_builder.push(" WHERE ");
+
+        let mut first_condition = true;
+
+        if let Some(user_id) = id {
+            query_builder.push(" u.id = ");
+            query_builder.push_bind(user_id);
+            first_condition = false;
+        }
+
+        if let Some(user_email) = email {
+            if !first_condition {
+                query_builder.push(" AND ");
+            }
+            query_builder.push(" u.email = ");
+            query_builder.push_bind(user_email);
+        }
     }
 
-    if let Some(e) = email {
-        query_builder.push(" u.email=");
-        query_builder.push_bind(e);
-    }
+    // Add active user condition
+    query_builder.push(" AND u.is_active = true");
 
-    let sqlx_query = query_builder
+    let user = query_builder
         .build()
         .map(|row: sqlx::postgres::PgRow| crate::types::User {
             id: row.get("u_id"),
@@ -40,22 +57,18 @@ pub async fn get_active_user_from_db(
                 birth_date: row.get("p_birth_date"),
                 github_link: row.get("p_github_link"),
             },
-        });
+        })
+        .fetch_one(executor)
+        .await;
 
-    let fetched_query = {
-        if pool.is_some() {
-            let p = pool.unwrap();
-            sqlx_query.fetch_one(p).await
-        } else {
-            let t = transaction.unwrap();
-            sqlx_query.fetch_one(&mut *t).await
-        }
-    };
-    match fetched_query {
+    match user {
         Ok(user) => Ok(user),
-        Err(e) => {
-            tracing::event!(target: "sqlx",tracing::Level::ERROR, "User not found in DB: {:#?}", e);
-            Err(e)
+        Err(err) => {
+            tracing::error!(
+                error = %err,
+                "Failed to fetch active user from database"
+            );
+            Err(err)
         }
     }
 }
